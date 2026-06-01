@@ -222,7 +222,27 @@ header h1 { font-family: 'Playfair Display', serif; font-size: 1.55rem; letter-s
 .qr-container canvas { border-radius: 10px; box-shadow: var(--shadow); }
 .qr-note { font-size: 0.78rem; color: var(--textm); margin-top: 10px; }
 
-/* SPINNER */
+/* CLOUD SYNC */
+.sync-status { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; padding: 7px 10px; border-radius: 8px; margin-bottom: 8px; font-weight: 600; }
+.sync-status.idle { background: rgba(255,255,255,0.05); color: var(--muted); }
+.sync-status.syncing { background: rgba(58,124,165,0.15); color: #7ec4ea; }
+.sync-status.ok { background: rgba(39,174,96,0.15); color: #5dbd7e; }
+.sync-status.error { background: rgba(192,57,43,0.15); color: #e07060; }
+.sync-dot { width: 7px; height: 7px; border-radius: 50%; }
+.sync-status.idle .sync-dot { background: var(--muted); }
+.sync-status.syncing .sync-dot { background: #7ec4ea; animation: pulse 1s infinite; }
+.sync-status.ok .sync-dot { background: #5dbd7e; }
+.sync-status.error .sync-dot { background: #e07060; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.jsonbin-setup { background: rgba(255,255,255,0.04); border: 1.5px dashed rgba(255,255,255,0.15); border-radius: 10px; padding: 12px; margin-bottom: 8px; }
+.jsonbin-setup p { font-size: 0.75rem; color: var(--muted); line-height: 1.6; margin-bottom: 8px; }
+.jsonbin-input { width: 100%; padding: 7px 10px; background: rgba(255,255,255,0.07); border: 1.5px solid rgba(255,255,255,0.12); border-radius: 7px; color: var(--sidebar-text); font-family: 'DM Sans',sans-serif; font-size: 0.78rem; margin-bottom: 6px; }
+.jsonbin-input:focus { outline: none; border-color: var(--terra); }
+.jsonbin-input::placeholder { color: var(--muted); }
+.btn-cloud { width: 100%; padding: 8px; background: var(--ocean2); color: white; border: none; border-radius: 7px; font-family: 'DM Sans',sans-serif; font-weight: 600; font-size: 0.8rem; cursor: pointer; transition: background 0.15s; margin-bottom: 5px; }
+.btn-cloud:hover { background: var(--ocean); }
+.btn-cloud-sec { background: rgba(255,255,255,0.07); color: var(--sidebar-text); }
+.btn-cloud-sec:hover { background: rgba(255,255,255,0.14); }
 .spinner { width: 15px; height: 15px; border: 2px solid var(--bg2); border-top-color: var(--terra); border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -269,6 +289,9 @@ header h1 { font-family: 'Playfair Display', serif; font-size: 1.55rem; letter-s
     <div class="trip-list" id="tripList"></div>
     <button class="btn-new-trip" onclick="openNewTripModal()">＋ Nuovo viaggio</button>
     <hr class="sidebar-sep">
+    <h2>☁️ Sync Cloud</h2>
+    <div id="cloudSection"></div>
+    <hr class="sidebar-sep">
     <h2>📱 App</h2>
     <div class="file-ops">
       <button class="btn-file install-btn" id="installBtn">📲 Installa app (PWA)</button>
@@ -291,7 +314,7 @@ header h1 { font-family: 'Playfair Display', serif; font-size: 1.55rem; letter-s
   <main class="main" id="mainContent">
     <div class="welcome">
       <div class="welcome-icon">✈️</div>
-      <h2>Benvenuto in PackPal</h2>
+      <h2>Benvenuto in ViaggiApp</h2>
       <p>Crea un nuovo viaggio per organizzare i bagagli per tutta la famiglia, con suggerimenti personalizzati per ogni persona.</p>
     </div>
   </main>
@@ -504,6 +527,144 @@ let trips = JSON.parse(localStorage.getItem('viaggiapp_trips') || '[]');
 let currentTripId = null;
 let activeFilter = 'tutti';
 let viewMode = 'grid';
+
+// ============================================================
+// JSONBIN CLOUD SYNC
+// ============================================================
+const JB_API = 'https://api.jsonbin.io/v3';
+let jbKey = localStorage.getItem('viaggiapp_jb_key') || '';
+let jbBinId = localStorage.getItem('viaggiapp_jb_bin') || '';
+let syncTimer = null;
+let lastSyncTime = localStorage.getItem('viaggiapp_last_sync') || '';
+
+function renderCloudSection() {
+  const el = document.getElementById('cloudSection');
+  if (!el) return;
+  if (!jbKey) {
+    el.innerHTML = `
+      <div class="jsonbin-setup">
+        <p>Sincronizza i tuoi viaggi su tutti i dispositivi tramite JSONBin (gratuito).</p>
+        <input class="jsonbin-input" id="jbKeyInput" type="password" placeholder="API Key JSONBin (X-Master-Key)" value="">
+        <input class="jsonbin-input" id="jbBinInput" type="text" placeholder="BIN ID (opzionale — se già creato)" value="">
+        <button class="btn-cloud" onclick="saveCloudConfig()">☁️ Connetti Cloud</button>
+        <a href="https://jsonbin.io" target="_blank" style="font-size:0.7rem;color:var(--muted);display:block;text-align:center">Come ottenere la chiave →</a>
+      </div>`;
+  } else {
+    const lastSync = lastSyncTime ? new Date(lastSyncTime).toLocaleTimeString('it-IT', {hour:'2-digit',minute:'2-digit'}) : 'mai';
+    el.innerHTML = `
+      <div id="syncStatus" class="sync-status idle"><span class="sync-dot"></span><span id="syncMsg">Ultimo sync: ${lastSync}</span></div>
+      <div style="display:flex;gap:5px;margin-bottom:6px">
+        <button class="btn-cloud" style="margin:0;flex:1" onclick="syncToCloud()">⬆️ Salva cloud</button>
+        <button class="btn-cloud" style="margin:0;flex:1" onclick="syncFromCloud()">⬇️ Carica cloud</button>
+      </div>
+      <div style="font-size:0.7rem;color:var(--muted);margin-bottom:6px">BIN: <span style="color:var(--terra)">${jbBinId || 'non creato'}</span></div>
+      <button class="btn-cloud btn-cloud-sec" onclick="disconnectCloud()">🔌 Disconnetti</button>`;
+  }
+}
+
+async function saveCloudConfig() {
+  const key = document.getElementById('jbKeyInput').value.trim();
+  const bin = document.getElementById('jbBinInput').value.trim();
+  if (!key) { showToast('⚠️ Inserisci la API Key'); return; }
+  jbKey = key;
+  jbBinId = bin;
+  localStorage.setItem('viaggiapp_jb_key', key);
+  localStorage.setItem('viaggiapp_jb_bin', bin);
+  renderCloudSection();
+  showToast('☁️ Connessione configurata!');
+  await syncToCloud();
+}
+
+function disconnectCloud() {
+  jbKey = ''; jbBinId = '';
+  localStorage.removeItem('viaggiapp_jb_key');
+  localStorage.removeItem('viaggiapp_jb_bin');
+  renderCloudSection();
+  showToast('🔌 Cloud disconnesso');
+}
+
+function setSyncStatus(state, msg) {
+  const el = document.getElementById('syncStatus');
+  const msgEl = document.getElementById('syncMsg');
+  if (!el || !msgEl) return;
+  el.className = 'sync-status ' + state;
+  msgEl.textContent = msg;
+}
+
+async function syncToCloud() {
+  if (!jbKey) return;
+  setSyncStatus('syncing', 'Salvataggio in corso...');
+  try {
+    const payload = { record: { trips, version: 2, updatedAt: new Date().toISOString() }, private: true };
+    let res, data;
+    if (jbBinId) {
+      // Aggiorna bin esistente
+      res = await fetch(`${JB_API}/b/${jbBinId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Master-Key': jbKey },
+        body: JSON.stringify(payload.record)
+      });
+    } else {
+      // Crea nuovo bin
+      res = await fetch(`${JB_API}/b`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Master-Key': jbKey, 'X-Bin-Name': 'ViaggiApp', 'X-Private': 'true' },
+        body: JSON.stringify(payload.record)
+      });
+    }
+    data = await res.json();
+    if (!res.ok) throw new Error(data.message || res.status);
+    if (!jbBinId) {
+      jbBinId = data.metadata?.id || '';
+      localStorage.setItem('viaggiapp_jb_bin', jbBinId);
+    }
+    lastSyncTime = new Date().toISOString();
+    localStorage.setItem('viaggiapp_last_sync', lastSyncTime);
+    const t = new Date().toLocaleTimeString('it-IT', {hour:'2-digit',minute:'2-digit'});
+    setSyncStatus('ok', `✓ Salvato alle ${t}`);
+    renderCloudSection();
+    showToast('☁️ Dati salvati sul cloud!');
+  } catch (e) {
+    setSyncStatus('error', '✗ Errore: ' + e.message);
+    showToast('⚠️ Errore sync: ' + e.message);
+  }
+}
+
+async function syncFromCloud() {
+  if (!jbKey || !jbBinId) { showToast('⚠️ BIN ID non configurato'); return; }
+  setSyncStatus('syncing', 'Caricamento in corso...');
+  try {
+    const res = await fetch(`${JB_API}/b/${jbBinId}/latest`, {
+      headers: { 'X-Master-Key': jbKey }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || res.status);
+    const remote = data.record;
+    if (!remote || !Array.isArray(remote.trips)) throw new Error('Formato dati non valido');
+    // Merge: unisci remote con locale, remote vince sulle collisioni per ID
+    const merged = [...remote.trips];
+    trips.forEach(lt => { if (!merged.find(rt => rt.id === lt.id)) merged.push(lt); });
+    trips = merged;
+    saveTripsLocal();
+    lastSyncTime = new Date().toISOString();
+    localStorage.setItem('viaggiapp_last_sync', lastSyncTime);
+    const t = new Date().toLocaleTimeString('it-IT', {hour:'2-digit',minute:'2-digit'});
+    setSyncStatus('ok', `✓ Caricato alle ${t}`);
+    renderCloudSection();
+    renderSidebar();
+    if (trips.length) selectTrip(trips[0].id);
+    showToast(`☁️ ${remote.trips.length} viaggi caricati dal cloud!`);
+  } catch (e) {
+    setSyncStatus('error', '✗ Errore: ' + e.message);
+    showToast('⚠️ Errore caricamento: ' + e.message);
+  }
+}
+
+function autoSync() {
+  if (!jbKey) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncToCloud(), 3000); // debounce 3s
+}
 
 // ============================================================
 // CONFIRM UTILITY
@@ -1374,7 +1535,7 @@ function exportTxt() {
   if (!currentTripId) { showToast('⚠️ Seleziona un viaggio'); return; }
   const trip = trips.find(t => t.id === currentTripId);
   if (!trip) return;
-  let txt = `╔══════════════════════════════════════╗\n║  PACKPAL - Lista Viaggio              ║\n╚══════════════════════════════════════╝\n\n`;
+  let txt = `╔══════════════════════════════════════╗\n║  VIAGGIAPP - Lista Viaggio            ║\n╚══════════════════════════════════════╝\n\n`;
   txt += `📋 Viaggio: ${trip.name}\n📍 Destinazione: ${trip.destination}\n📅 Date: ${trip.startDate||'?'} → ${trip.endDate||'?'} (${getNights(trip.startDate,trip.endDate)} notti)\n`;
   txt += `👥 Partecipanti: ${(trip.passengers||[]).map(p=>p.name).join(', ')}\n`;
   txt += `🌤️ Clima: ${trip.climate} | Tipo: ${trip.type}\n`;
@@ -1441,7 +1602,8 @@ function download(content, filename, type) {
 // UTILS
 // ============================================================
 function getNights(s, e) { if (!s || !e) return 7; return Math.max(1, Math.round((new Date(e) - new Date(s)) / 86400000)); }
-function saveTrips() { try { localStorage.setItem('viaggiapp_trips', JSON.stringify(trips)); } catch(e) { showToast('⚠️ Errore salvataggio: spazio esaurito'); } }
+function saveTripsLocal() { try { localStorage.setItem('viaggiapp_trips', JSON.stringify(trips)); } catch(e) { showToast('⚠️ Errore salvataggio: spazio esaurito'); } }
+function saveTrips() { saveTripsLocal(); autoSync(); }
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 window.addEventListener('click', e => { if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('open'); });
@@ -1455,6 +1617,7 @@ function showToast(msg) {
 // ============================================================
 // INIT
 // ============================================================
+renderCloudSection();
 renderSidebar();
 checkUrlTrip();
 if (trips.length && !currentTripId) selectTrip(trips[0].id);
