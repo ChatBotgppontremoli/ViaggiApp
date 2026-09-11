@@ -207,7 +207,11 @@ header h1 { font-family: 'Playfair Display', serif; font-size: 1.55rem; letter-s
 .tag-personalizzato { background: rgba(100,100,200,0.12); color: #5050b0; }
 [data-theme="dark"] .tag-essenziale { color: #e07070; }
 [data-theme="dark"] .tag-consigliato { color: var(--terra); }
-.check-weight { font-size: 0.65rem; color: var(--textm); margin-left: auto; white-space: nowrap; }
+.check-qty { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-shrink: 0; }
+.qty-btn { width: 22px; height: 22px; border-radius: 5px; border: 1.5px solid var(--border); background: var(--bg2); color: var(--text); font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.12s; line-height: 1; font-weight: 700; }
+.qty-btn:hover { border-color: var(--terra); color: var(--terra); }
+.qty-val { font-size: 0.78rem; font-weight: 700; color: var(--text); min-width: 20px; text-align: center; }
+.check-weight { font-size: 0.62rem; color: var(--textm); white-space: nowrap; }
 .check-del { background: none; border: none; cursor: pointer; color: var(--textm); font-size: 0.7rem; padding: 0 2px; opacity: 0; transition: opacity 0.15s; }
 .check-item:hover .check-del { opacity: 0.7; }
 .check-del:hover { color: var(--danger); opacity: 1 !important; }
@@ -295,14 +299,20 @@ header h1 { font-family: 'Playfair Display', serif; font-size: 1.55rem; letter-s
     <h2>📱 App</h2>
     <div class="file-ops">
       <button class="btn-file install-btn" id="installBtn">📲 Installa app (PWA)</button>
-      <hr class="sidebar-sep" style="margin:4px 0">
-      <h2 style="margin-top:8px">📂 File</h2>
+    </div>
+    <hr class="sidebar-sep">
+    <h2>📂 File</h2>
+    <div class="file-ops">
+      <div style="font-size:0.7rem;color:var(--muted);margin-bottom:6px;font-weight:600">VIAGGIO CORRENTE</div>
       <button class="btn-file" onclick="exportTxt()">💾 Esporta lista .txt</button>
-      <button class="btn-file" onclick="document.getElementById('importFile').click()">📂 Importa viaggio .json</button>
-      <input type="file" id="importFile" accept=".txt,.json" style="display:none" onchange="importTxt(event)">
-      <button class="btn-file" onclick="exportAll()">📦 Backup tutti</button>
-      <button class="btn-file" onclick="document.getElementById('importAll').click()">♻️ Ripristina backup</button>
-      <input type="file" id="importAll" accept=".json" style="display:none" onchange="importAll(event)">
+      <button class="btn-file" onclick="exportTripJson()">📄 Esporta viaggio .json</button>
+      <button class="btn-file" onclick="document.getElementById('importTripFile').click()">📂 Importa viaggio .json</button>
+      <input type="file" id="importTripFile" accept=".json" style="display:none" onchange="importTripJson(event)">
+      <div style="font-size:0.7rem;color:var(--muted);margin:10px 0 6px;font-weight:600">TUTTI I VIAGGI</div>
+      <button class="btn-file" onclick="exportAllTxt()">📋 Esporta tutti .txt</button>
+      <button class="btn-file" onclick="exportAll()">📦 Backup tutti .json</button>
+      <button class="btn-file" onclick="document.getElementById('importAllFile').click()">♻️ Importa backup .json</button>
+      <input type="file" id="importAllFile" accept=".json" style="display:none" onchange="importAll(event)">
     </div>
     <hr class="sidebar-sep">
     <div style="font-size:0.72rem; color: var(--muted); line-height:1.6;">
@@ -543,36 +553,78 @@ function renderCloudSection() {
   if (!jbKey) {
     el.innerHTML = `
       <div class="jsonbin-setup">
-        <p>Sincronizza i tuoi viaggi su tutti i dispositivi tramite JSONBin (gratuito).</p>
-        <input class="jsonbin-input" id="jbKeyInput" type="password" placeholder="API Key JSONBin (X-Master-Key)" value="">
-        <input class="jsonbin-input" id="jbBinInput" type="text" placeholder="BIN ID (opzionale — se già creato)" value="">
-        <button class="btn-cloud" onclick="saveCloudConfig()">☁️ Connetti Cloud</button>
-        <a href="https://jsonbin.io" target="_blank" style="font-size:0.7rem;color:var(--muted);display:block;text-align:center">Come ottenere la chiave →</a>
+        <p>Sincronizza i tuoi viaggi su tutti i dispositivi gratuitamente.</p>
+        <p style="color:var(--terra);font-size:0.72rem;margin-bottom:8px">
+          1. Vai su <a href="https://jsonbin.io" target="_blank" style="color:var(--terra)">jsonbin.io</a> → registrati<br>
+          2. Dashboard → <strong>API Keys</strong> → copia la chiave<br>
+          3. La chiave inizia con <code style="background:rgba(255,255,255,0.1);padding:1px 4px;border-radius:3px">$2a$10$</code>
+        </p>
+        <input class="jsonbin-input" id="jbKeyInput" type="text" placeholder="Incolla qui la Master Key ($2a$10$...)" value="" autocomplete="off" autocorrect="off" spellcheck="false">
+        <input class="jsonbin-input" id="jbBinInput" type="text" placeholder="BIN ID (lascia vuoto per crearne uno nuovo)" value="" autocomplete="off">
+        <button class="btn-cloud" onclick="saveCloudConfig()">☁️ Connetti e testa</button>
+        <div id="jbTestResult" style="font-size:0.72rem;margin-top:6px;color:var(--muted)"></div>
       </div>`;
   } else {
     const lastSync = lastSyncTime ? new Date(lastSyncTime).toLocaleTimeString('it-IT', {hour:'2-digit',minute:'2-digit'}) : 'mai';
     el.innerHTML = `
       <div id="syncStatus" class="sync-status idle"><span class="sync-dot"></span><span id="syncMsg">Ultimo sync: ${lastSync}</span></div>
       <div style="display:flex;gap:5px;margin-bottom:6px">
-        <button class="btn-cloud" style="margin:0;flex:1" onclick="syncToCloud()">⬆️ Salva cloud</button>
-        <button class="btn-cloud" style="margin:0;flex:1" onclick="syncFromCloud()">⬇️ Carica cloud</button>
+        <button class="btn-cloud" style="margin:0;flex:1" onclick="syncToCloud()">⬆️ Salva</button>
+        <button class="btn-cloud" style="margin:0;flex:1" onclick="syncFromCloud()">⬇️ Carica</button>
       </div>
-      <div style="font-size:0.7rem;color:var(--muted);margin-bottom:6px">BIN: <span style="color:var(--terra)">${jbBinId || 'non creato'}</span></div>
+      <div style="font-size:0.7rem;color:var(--muted);margin-bottom:6px;word-break:break-all">
+        BIN ID: <span style="color:var(--terra);font-size:0.68rem">${jbBinId || 'non creato'}</span>
+      </div>
+      <button class="btn-cloud btn-cloud-sec" onclick="copyBinId()" style="margin-bottom:5px">📋 Copia BIN ID</button>
       <button class="btn-cloud btn-cloud-sec" onclick="disconnectCloud()">🔌 Disconnetti</button>`;
   }
 }
 
 async function saveCloudConfig() {
-  const key = document.getElementById('jbKeyInput').value.trim();
-  const bin = document.getElementById('jbBinInput').value.trim();
-  if (!key) { showToast('⚠️ Inserisci la API Key'); return; }
+  const keyRaw = document.getElementById('jbKeyInput').value;
+  const key = keyRaw.trim().replace(/[\u200B-\u200D\uFEFF]/g, ''); // rimuove zero-width chars
+  const bin = (document.getElementById('jbBinInput').value || '').trim();
+  const resultEl = document.getElementById('jbTestResult');
+
+  if (!key) { if(resultEl) resultEl.textContent = '⚠️ Incolla la Master Key'; return; }
+  if (!key.startsWith('$2a$') && !key.startsWith('$2b$')) {
+    if(resultEl) resultEl.innerHTML = '⚠️ La chiave sembra errata. Deve iniziare con <code>$2a$10$</code>. Copiala dalla pagina <strong>API Keys</strong> di jsonbin.io';
+    return;
+  }
+  if(resultEl) resultEl.innerHTML = '<span style="color:#7ec4ea">🔄 Test connessione...</span>';
+
+  // Test rapido: leggi lista bin per verificare la chiave
+  try {
+    const testRes = await fetch('https://api.jsonbin.io/v3/b?sortBy=createdAt&sortOrder=desc&limit=1', {
+      headers: { 'X-Master-Key': key }
+    });
+    if (testRes.status === 401) {
+      if(resultEl) resultEl.innerHTML = '❌ Chiave non valida. Ricopiala dalla pagina <strong>API Keys</strong> di jsonbin.io (tasto copia, non digitare a mano).';
+      return;
+    }
+    if (!testRes.ok && testRes.status !== 200) {
+      if(resultEl) resultEl.textContent = `⚠️ Errore HTTP ${testRes.status}`;
+      return;
+    }
+  } catch(e) {
+    if(resultEl) resultEl.textContent = '⚠️ Errore di rete: ' + e.message;
+    return;
+  }
+
+  if(resultEl) resultEl.innerHTML = '<span style="color:#5dbd7e">✓ Chiave valida! Salvataggio...</span>';
   jbKey = key;
   jbBinId = bin;
   localStorage.setItem('viaggiapp_jb_key', key);
   localStorage.setItem('viaggiapp_jb_bin', bin);
-  renderCloudSection();
-  showToast('☁️ Connessione configurata!');
-  await syncToCloud();
+  setTimeout(async () => {
+    renderCloudSection();
+    await syncToCloud();
+  }, 500);
+}
+
+function copyBinId() {
+  if (!jbBinId) { showToast('⚠️ Nessun BIN ID ancora'); return; }
+  navigator.clipboard.writeText(jbBinId).then(() => showToast('📋 BIN ID copiato!')).catch(() => showToast('BIN ID: ' + jbBinId));
 }
 
 function disconnectCloud() {
@@ -813,40 +865,41 @@ function getPassengerClothes(pax, climate, tripType, nights) {
   const undies = n + 2;
 
   if (hot) {
-    clothes.push({name:`[${L}] Magliette/top leggeri ×${tops}`,tag:'vestiti',weight:0.15*tops});
-    clothes.push({name:`[${L}] Pantaloncini/shorts ×${shirts}`,tag:'vestiti',weight:0.2*shirts});
-    clothes.push({name:`[${L}] Costume da bagno ×2`,tag:'vestiti',weight:0.2});
+    clothes.push({name:`[${L}] Magliette/top leggeri`,tag:'vestiti',weight:0.15,qty:tops});
+    clothes.push({name:`[${L}] Pantaloncini/shorts`,tag:'vestiti',weight:0.2,qty:shirts});
+    clothes.push({name:`[${L}] Costume da bagno`,tag:'vestiti',weight:0.1,qty:2});
     if (isFemale && !isChild) {
-      clothes.push({name:`[${L}] Vestiti/abiti leggeri ×3`,tag:'vestiti',weight:0.4});
-      clothes.push({name:`[${L}] Reggiseni ×3`,tag:'intimo',weight:0.15});
+      clothes.push({name:`[${L}] Vestiti/abiti leggeri`,tag:'vestiti',weight:0.2,qty:3});
+      clothes.push({name:`[${L}] Reggiseni`,tag:'intimo',weight:0.08,qty:3});
     }
     if (!isFemale && !isChild) {
-      clothes.push({name:`[${L}] Camicia leggera per sera ×2`,tag:'vestiti',weight:0.3});
-      clothes.push({name:`[${L}] Pantaloni lunghi leggeri ×1`,tag:'vestiti',weight:0.3});
+      clothes.push({name:`[${L}] Camicia leggera per sera`,tag:'vestiti',weight:0.2,qty:2});
+      clothes.push({name:`[${L}] Pantaloni lunghi leggeri`,tag:'vestiti',weight:0.3,qty:1});
     }
-    clothes.push({name:`[${L}] Coprispalle (templi/A/C) ×1`,tag:'vestiti',weight:0.15});
-    clothes.push({name:`[${L}] Sandali/infradito`,tag:'scarpe',weight:0.35});
-    if (!isChild) clothes.push({name:`[${L}] Scarpe chiuse leggere`,tag:'scarpe',weight:0.6});
-    if (isChild) clothes.push({name:`[${L}] Scarpe chiuse comode`,tag:'scarpe',weight:0.5});
+    clothes.push({name:`[${L}] Coprispalle (templi/A/C)`,tag:'vestiti',weight:0.15,qty:1});
+    clothes.push({name:`[${L}] Sandali/infradito`,tag:'scarpe',weight:0.35,qty:1});
+    if (!isChild) clothes.push({name:`[${L}] Scarpe chiuse leggere`,tag:'scarpe',weight:0.6,qty:1});
+    if (isChild)  clothes.push({name:`[${L}] Scarpe chiuse comode`,tag:'scarpe',weight:0.5,qty:1});
   } else if (cold) {
-    clothes.push({name:`[${L}] Maglioni/pile ×3`,tag:'vestiti',weight:0.8});
-    clothes.push({name:`[${L}] Pantaloni lunghi ×3`,tag:'vestiti',weight:0.9});
-    clothes.push({name:`[${L}] Maglie termiche ×2`,tag:'intimo',weight:0.3});
-    clothes.push({name:`[${L}] Giacca invernale`,tag:'vestiti',weight:1.0});
-    clothes.push({name:`[${L}] Calze calde ×${socks}`,tag:'intimo',weight:0.08*socks});
+    clothes.push({name:`[${L}] Maglioni/pile`,tag:'vestiti',weight:0.35,qty:3});
+    clothes.push({name:`[${L}] Pantaloni lunghi`,tag:'vestiti',weight:0.45,qty:3});
+    clothes.push({name:`[${L}] Maglie termiche`,tag:'intimo',weight:0.18,qty:2});
+    clothes.push({name:`[${L}] Giacca invernale`,tag:'vestiti',weight:1.0,qty:1});
+    clothes.push({name:`[${L}] Calze calde`,tag:'intimo',weight:0.08,qty:socks});
   } else {
-    clothes.push({name:`[${L}] Magliette ×${Math.ceil(n/2)+2}`,tag:'vestiti',weight:0.18*(Math.ceil(n/2)+2)});
-    clothes.push({name:`[${L}] Pantaloni/jeans ×2`,tag:'vestiti',weight:0.7});
-    clothes.push({name:`[${L}] Felpa/maglione leggero ×1`,tag:'vestiti',weight:0.4});
-    if (!isChild) clothes.push({name:`[${L}] Abito/camicia elegante ×1`,tag:'vestiti',weight:0.3});
-    clothes.push({name:`[${L}] Sneakers comode`,tag:'scarpe',weight:0.7});
+    const topsCity = Math.ceil(n/2)+2;
+    clothes.push({name:`[${L}] Magliette`,tag:'vestiti',weight:0.18,qty:topsCity});
+    clothes.push({name:`[${L}] Pantaloni/jeans`,tag:'vestiti',weight:0.45,qty:2});
+    clothes.push({name:`[${L}] Felpa/maglione leggero`,tag:'vestiti',weight:0.4,qty:1});
+    if (!isChild) clothes.push({name:`[${L}] Abito/camicia elegante`,tag:'vestiti',weight:0.3,qty:1});
+    clothes.push({name:`[${L}] Sneakers comode`,tag:'scarpe',weight:0.7,qty:1});
   }
-  clothes.push({name:`[${L}] Mutande/slip ×${undies}`,tag:'intimo',weight:0.05*undies});
-  if (!cold) clothes.push({name:`[${L}] Calzini ×${socks}`,tag:'intimo',weight:0.04*socks});
-  clothes.push({name:`[${L}] Pigiama ×2`,tag:'intimo',weight:0.3});
+  clothes.push({name:`[${L}] Mutande/slip`,tag:'intimo',weight:0.05,qty:undies});
+  if (!cold) clothes.push({name:`[${L}] Calzini`,tag:'intimo',weight:0.04,qty:socks});
+  clothes.push({name:`[${L}] Pigiama`,tag:'intimo',weight:0.2,qty:2});
   if (isChild) {
-    clothes.push({name:`[${L}] Cappellino protezione sole`,tag:'accessori',weight:0.1});
-    clothes.push({name:`[${L}] Felpa leggera per sera`,tag:'vestiti',weight:0.3});
+    clothes.push({name:`[${L}] Cappellino protezione sole`,tag:'accessori',weight:0.1,qty:1});
+    clothes.push({name:`[${L}] Felpa leggera per sera`,tag:'vestiti',weight:0.3,qty:1});
   }
   return clothes;
 }
@@ -962,7 +1015,9 @@ function getOutfitAdvice(trip) {
 
 function calcWeight(checklist) {
   let total = 0;
-  Object.values(checklist || {}).forEach(s => s.items.forEach(it => { if (it.checked && it.weight) total += it.weight; }));
+  Object.values(checklist || {}).forEach(s => s.items.forEach(it => {
+    if (it.checked && it.weight) total += it.weight * (it.qty || 1);
+  }));
   return Math.round(total * 10) / 10;
 }
 
@@ -1025,14 +1080,24 @@ function renderMain(trip) {
   const sectionsHtml = Object.entries(trip.checklist).map(([k, s], idx) => {
     const done = s.items.filter(i => i.checked).length;
     const pct = s.items.length ? Math.round((done / s.items.length) * 100) : 0;
-    const itemsHtml = s.items.map(it => `
-      <div class="check-item ${it.checked?'checked':''} filter-item" data-tag="${it.tag||''}" onclick="toggleItem('${trip.id}','${k}','${it.id}')">
-        <div class="check-box">${it.checked?'✓':''}</div>
-        <span class="check-label">${it.name}</span>
-        ${it.weight ? `<span class="check-weight">${it.weight}kg</span>` : ''}
+    const itemsHtml = s.items.map(it => {
+      const qty = it.qty || 1;
+      const totalW = it.weight ? Math.round(it.weight * qty * 100) / 100 : 0;
+      const hasQty = it.weight !== undefined; // show qty only for items with weight
+      return `
+      <div class="check-item ${it.checked?'checked':''} filter-item" data-tag="${it.tag||''}">
+        <div class="check-box" onclick="toggleItem('${trip.id}','${k}','${it.id}')">${it.checked?'✓':''}</div>
+        <span class="check-label" onclick="toggleItem('${trip.id}','${k}','${it.id}')">${it.name}</span>
+        ${hasQty ? `<div class="check-qty" onclick="event.stopPropagation()">
+          <button class="qty-btn" onclick="changeQty('${trip.id}','${k}','${it.id}',-1)">−</button>
+          <span class="qty-val">${qty}</span>
+          <button class="qty-btn" onclick="changeQty('${trip.id}','${k}','${it.id}',1)">＋</button>
+        </div>` : ''}
+        ${totalW ? `<span class="check-weight">${totalW}kg</span>` : ''}
         ${it.tag ? `<span class="check-tag tag-${it.tag}">${it.tag}</span>` : ''}
         <button class="check-del" onclick="event.stopPropagation();delItem('${trip.id}','${k}','${it.id}')" title="Elimina">✕</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     return `<div class="checklist-section tab-section" data-section="${k}" style="${idx===0?'':'display:none'}">
       <div class="section-title"><span class="sec-icon">${s.icon}</span>${s.label}<span class="sec-prog">${done}/${s.items.length} (${pct}%)</span></div>
       <div class="progress-bar-wrap"><div class="progress-bar" style="width:${pct}%"></div></div>
@@ -1182,19 +1247,38 @@ function toggleItem(tripId, secKey, itemId) {
   item.checked = !item.checked;
   saveTrips();
 
-  // Aggiorna solo l'elemento nel DOM, senza ri-renderizzare
-  const el = document.querySelector(`.check-item[onclick*="${itemId}"]`);
+  // Trova il check-item contenitore cercando il check-box con onclick che contiene l'itemId
+  const box = document.querySelector(`.check-box[onclick*="${itemId}"]`);
+  const el = box?.closest('.check-item');
   if (el) {
     el.classList.toggle('checked', item.checked);
-    el.querySelector('.check-box').textContent = item.checked ? '✓' : '';
+    box.textContent = item.checked ? '✓' : '';
     const label = el.querySelector('.check-label');
     if (label) label.style.textDecoration = item.checked ? 'line-through' : '';
   }
-
-  // Aggiorna progresso sezione e stats
   refreshSectionProgress(trip, secKey);
   refreshStats(trip);
   applyFilter();
+}
+
+function changeQty(tripId, secKey, itemId, delta) {
+  const trip = trips.find(t => t.id === tripId);
+  if (!trip) return;
+  const item = trip.checklist[secKey]?.items.find(i => i.id === itemId);
+  if (!item) return;
+  item.qty = Math.max(1, (item.qty || 1) + delta);
+  saveTrips();
+  // Aggiorna DOM in-place
+  const qtyBtn = document.querySelector(`.qty-btn[onclick*="'${itemId}',-1"]`) ||
+                 document.querySelector(`.qty-btn[onclick*="'${itemId}',1"]`);
+  const el = qtyBtn?.closest('.check-item');
+  if (el) {
+    const qv = el.querySelector('.qty-val');
+    if (qv) qv.textContent = item.qty;
+    const wEl = el.querySelector('.check-weight');
+    if (wEl && item.weight) wEl.textContent = Math.round(item.weight * item.qty * 100) / 100 + 'kg';
+  }
+  refreshStats(trip);
 }
 
 function addCustomItem(tripId, secKey) {
@@ -1203,22 +1287,27 @@ function addCustomItem(tripId, secKey) {
   if (!val) return;
   const trip = trips.find(t => t.id === tripId);
   if (!trip || !trip.checklist[secKey]) return;
-  const newItem = { name: val, tag: 'personalizzato', id: 'c_' + Math.random().toString(36).slice(2,8), checked: false, weight: 0 };
+  const newItem = { name: val, tag: 'personalizzato', id: 'c_' + Math.random().toString(36).slice(2,8), checked: false, weight: 0, qty: 1 };
   trip.checklist[secKey].items.push(newItem);
   saveTrips();
-
-  // Aggiunge solo il nuovo elemento nel grid senza ri-renderizzare
   const grid = document.getElementById('grid_' + secKey);
   if (grid) {
     const div = document.createElement('div');
     div.className = 'check-item filter-item';
     div.dataset.tag = 'personalizzato';
-    div.setAttribute('onclick', `toggleItem('${tripId}','${secKey}','${newItem.id}')`);
-    div.innerHTML = `<div class="check-box"></div><span class="check-label">${val}</span><span class="check-tag tag-personalizzato">personalizzato</span><button class="check-del" onclick="event.stopPropagation();delItem('${tripId}','${secKey}','${newItem.id}')" title="Elimina">✕</button>`;
+    div.innerHTML = `
+      <div class="check-box" onclick="toggleItem('${tripId}','${secKey}','${newItem.id}')"></div>
+      <span class="check-label" onclick="toggleItem('${tripId}','${secKey}','${newItem.id}')">${val}</span>
+      <div class="check-qty" onclick="event.stopPropagation()">
+        <button class="qty-btn" onclick="changeQty('${tripId}','${secKey}','${newItem.id}',-1)">−</button>
+        <span class="qty-val">1</span>
+        <button class="qty-btn" onclick="changeQty('${tripId}','${secKey}','${newItem.id}',1)">＋</button>
+      </div>
+      <span class="check-tag tag-personalizzato">personalizzato</span>
+      <button class="check-del" onclick="event.stopPropagation();delItem('${tripId}','${secKey}','${newItem.id}')" title="Elimina">✕</button>`;
     if (viewMode === 'list') grid.classList.add('view-list');
     grid.appendChild(div);
   }
-
   inp.value = '';
   refreshSectionProgress(trip, secKey);
   refreshStats(trip);
@@ -1230,12 +1319,8 @@ function delItem(tripId, secKey, itemId) {
   if (!trip) return;
   trip.checklist[secKey].items = trip.checklist[secKey].items.filter(i => i.id !== itemId);
   saveTrips();
-
-  // Rimuove solo l'elemento dal DOM
-  const el = document.querySelector(`.check-item[onclick*="${itemId}"]`) ||
-             document.querySelector(`.check-del[onclick*="${itemId}"]`)?.closest('.check-item');
+  const el = document.querySelector(`.check-del[onclick*="${itemId}"]`)?.closest('.check-item');
   if (el) el.remove();
-
   refreshSectionProgress(trip, secKey);
   refreshStats(trip);
 }
@@ -1531,29 +1616,46 @@ function checkUrlTrip() {
 // ============================================================
 // FILE OPS
 // ============================================================
+function buildTxtForTrip(trip) {
+  let txt = "╔══════════════════════════════════════╗\n║  VIAGGIAPP - Lista Viaggio            ║\n╚══════════════════════════════════════╝\n\n";
+  txt += "📋 Viaggio: " + trip.name + "\n📍 Destinazione: " + trip.destination + "\n";
+  txt += "📅 Date: " + (trip.startDate||'?') + " → " + (trip.endDate||'?') + " (" + getNights(trip.startDate,trip.endDate) + " notti)\n";
+  txt += "👥 Partecipanti: " + (trip.passengers||[]).map(p=>p.name).join(', ') + "\n";
+  txt += "🌤️ Clima: " + trip.climate + " | Tipo: " + trip.type + "\n";
+  if (trip.notes) txt += "📝 Note: " + trip.notes + "\n";
+  const prog = getTripProgress(trip);
+  txt += "\n" + "─".repeat(42) + "\nPROGRESSO: " + prog.done + "/" + prog.total + " (" + prog.pct + "%)\n" + "─".repeat(42) + "\n\n";
+  Object.values(trip.checklist || {}).forEach(sec => {
+    txt += sec.icon + " " + sec.label.toUpperCase() + "\n" + "─".repeat(30) + "\n";
+    sec.items.forEach(it => {
+      const qty = it.qty || 1;
+      const qtyStr = qty > 1 ? " ×" + qty : '';
+      const wStr = it.weight ? " (" + Math.round(it.weight*qty*100)/100 + "kg)" : '';
+      txt += "[" + (it.checked ? '✓' : ' ') + "] " + it.name + qtyStr + wStr + "\n";
+    });
+    txt += "\n";
+  });
+  if (trip.notes) txt += "\n📝 NOTE:\n" + trip.notes + "\n";
+  return txt;
+}
+
 function exportTxt() {
   if (!currentTripId) { showToast('⚠️ Seleziona un viaggio'); return; }
   const trip = trips.find(t => t.id === currentTripId);
   if (!trip) return;
-  let txt = `╔══════════════════════════════════════╗\n║  VIAGGIAPP - Lista Viaggio            ║\n╚══════════════════════════════════════╝\n\n`;
-  txt += `📋 Viaggio: ${trip.name}\n📍 Destinazione: ${trip.destination}\n📅 Date: ${trip.startDate||'?'} → ${trip.endDate||'?'} (${getNights(trip.startDate,trip.endDate)} notti)\n`;
-  txt += `👥 Partecipanti: ${(trip.passengers||[]).map(p=>p.name).join(', ')}\n`;
-  txt += `🌤️ Clima: ${trip.climate} | Tipo: ${trip.type}\n`;
-  if (trip.notes) txt += `📝 Note: ${trip.notes}\n`;
-  txt += `\n${'─'.repeat(42)}\n\n`;
-  const prog = getTripProgress(trip);
-  txt += `PROGRESSO: ${prog.done}/${prog.total} (${prog.pct}%)\n\n`;
-  Object.values(trip.checklist || {}).forEach(sec => {
-    txt += `${sec.icon} ${sec.label.toUpperCase()}\n${'─'.repeat(30)}\n`;
-    sec.items.forEach(it => { txt += `[${it.checked ? '✓' : ' '}] ${it.name}${it.weight ? ` (${it.weight}kg)` : ''}\n`; });
-    txt += '\n';
-  });
-  if (trip.notes) txt += `\n📝 NOTE:\n${trip.notes}\n`;
-  download(txt, `viaggiapp_${trip.name.replace(/\s+/g,'_')}.txt`, 'text/plain');
-  showToast('💾 Lista esportata!');
+  download(buildTxtForTrip(trip), 'viaggiapp_' + trip.name.replace(/\s+/g,'_') + '.txt', 'text/plain');
+  showToast('💾 Lista .txt esportata!');
 }
 
-function importTxt(e) {
+function exportTripJson() {
+  if (!currentTripId) { showToast('⚠️ Seleziona un viaggio'); return; }
+  const trip = trips.find(t => t.id === currentTripId);
+  if (!trip) return;
+  download(JSON.stringify(trip, null, 2), 'viaggiapp_' + trip.name.replace(/\s+/g,'_') + '.json', 'application/json');
+  showToast('📄 Viaggio .json esportato!');
+}
+
+function importTripJson(e) {
   const file = e.target.files[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = ev => {
@@ -1562,17 +1664,27 @@ function importTxt(e) {
       if (data.id && data.name) {
         data.id = Date.now().toString(36);
         trips.push(data); saveTrips(); renderSidebar(); selectTrip(data.id);
-        showToast('📂 Viaggio importato!'); return;
-      }
-    } catch {}
-    showToast('⚠️ Formato non riconosciuto. Usa file .json di backup.');
+        showToast('📂 Viaggio importato!');
+      } else { showToast('⚠️ File non valido: manca id o name'); }
+    } catch { showToast('⚠️ File JSON non valido'); }
   };
   reader.readAsText(file); e.target.value = '';
 }
 
+function exportAllTxt() {
+  if (!trips.length) { showToast('⚠️ Nessun viaggio'); return; }
+  let txt = '';
+  trips.forEach((trip, i) => {
+    if (i > 0) txt += "\n\n" + "═".repeat(42) + "\n\n";
+    txt += trip.checklist ? buildTxtForTrip(trip) : "📋 " + trip.name + " (nessuna checklist)\n";
+  });
+  download(txt, 'viaggiapp_tutti_viaggi.txt', 'text/plain');
+  showToast('📋 Tutti i viaggi esportati in .txt!');
+}
+
 function exportAll() {
   download(JSON.stringify(trips, null, 2), 'viaggiapp_backup.json', 'application/json');
-  showToast('📦 Backup esportato!');
+  showToast('📦 Backup .json esportato!');
 }
 
 function importAll(e) {
@@ -1582,12 +1694,12 @@ function importAll(e) {
     try {
       const data = JSON.parse(ev.target.result);
       if (Array.isArray(data)) {
-        try { await confirm2(`Importare ${data.length} viaggi? Quelli con lo stesso ID saranno saltati.`); } catch { return; }
+        try { await confirm2("Importare " + data.length + " viaggi? Quelli con ID già esistente saranno saltati."); } catch { return; }
         let added = 0;
         data.forEach(t => { if (!trips.find(x => x.id === t.id)) { trips.push(t); added++; } });
-        saveTrips(); renderSidebar(); showToast(`✅ ${added} viaggi importati!`);
-      }
-    } catch { showToast('⚠️ File non valido'); }
+        saveTrips(); renderSidebar(); showToast("✅ " + added + " viaggi importati!");
+      } else { showToast('⚠️ File non valido: deve essere un array'); }
+    } catch { showToast('⚠️ File JSON non valido'); }
   };
   reader.readAsText(file); e.target.value = '';
 }
