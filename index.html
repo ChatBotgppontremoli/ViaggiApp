@@ -577,6 +577,7 @@ function renderCloudSection() {
         BIN ID: <span style="color:var(--terra);font-size:0.68rem">${jbBinId || 'non creato'}</span>
       </div>
       <button class="btn-cloud btn-cloud-sec" onclick="copyBinId()" style="margin-bottom:5px">📋 Copia BIN ID</button>
+      <button class="btn-cloud btn-cloud-sec" onclick="resetBinId()" style="margin-bottom:5px">🔄 Reset BIN ID</button>
       <button class="btn-cloud btn-cloud-sec" onclick="disconnectCloud()">🔌 Disconnetti</button>`;
   }
 }
@@ -623,6 +624,13 @@ async function saveCloudConfig() {
   }, 500);
 }
 
+function resetBinId() {
+  jbBinId = '';
+  localStorage.removeItem('viaggiapp_jb_bin');
+  renderCloudSection();
+  showToast('🔄 BIN ID azzerato. Usa ⬆️ Salva per crearne uno nuovo.');
+}
+
 function copyBinId() {
   if (!jbBinId) { showToast('⚠️ Nessun BIN ID ancora'); return; }
   navigator.clipboard.writeText(jbBinId).then(() => showToast('📋 BIN ID copiato!')).catch(() => showToast('BIN ID: ' + jbBinId));
@@ -647,80 +655,89 @@ function setSyncStatus(state, msg) {
 async function syncToCloud() {
   if (!jbKey) return;
   setSyncStatus('syncing', 'Salvataggio in corso...');
+  const record = { trips, version: 2, updatedAt: new Date().toISOString() };
   try {
-    const payload = { record: { trips, version: 2, updatedAt: new Date().toISOString() }, private: true };
     let res, data;
+
     if (jbBinId) {
-      // Aggiorna bin esistente
+      // Prova ad aggiornare il bin esistente
       res = await fetch(`${JB_API}/b/${jbBinId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Master-Key': jbKey },
-        body: JSON.stringify(payload.record)
+        body: JSON.stringify(record)
       });
-    } else {
-      // Crea nuovo bin
-      res = await fetch(`${JB_API}/b`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Master-Key': jbKey, 'X-Bin-Name': 'ViaggiApp', 'X-Private': 'true' },
-        body: JSON.stringify(payload.record)
-      });
-    }
-    data = await res.json();
-    if (!res.ok) {
-      if (res.status === 404) {
-        // BIN non trovato — lo creo ex-novo
+      data = await res.json();
+
+      if (res.status === 404 || res.status === 400) {
+        // BIN non valido — resetto e ne creo uno nuovo
+        console.warn('BIN non trovato (' + res.status + '), creo nuovo...');
         jbBinId = '';
         localStorage.removeItem('viaggiapp_jb_bin');
-        setSyncStatus('syncing', 'BIN non trovato, ne creo uno nuovo...');
+        setSyncStatus('syncing', 'BIN non valido, creo nuovo...');
         res = await fetch(`${JB_API}/b`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Master-Key': jbKey, 'X-Bin-Name': 'ViaggiApp', 'X-Private': 'true' },
-          body: JSON.stringify(payload.record)
+          body: JSON.stringify(record)
         });
         data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'HTTP ' + res.status);
-      } else {
-        throw new Error(data.message || 'HTTP ' + res.status);
       }
+    } else {
+      // Nessun BIN ID — creane uno nuovo
+      res = await fetch(`${JB_API}/b`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Master-Key': jbKey, 'X-Bin-Name': 'ViaggiApp', 'X-Private': 'true' },
+        body: JSON.stringify(record)
+      });
+      data = await res.json();
     }
-    if (!jbBinId) {
-      jbBinId = data.metadata?.id || '';
+
+    if (!res.ok) {
+      throw new Error((data.message || '') + ' (HTTP ' + res.status + ')');
+    }
+
+    // Salva il BIN ID ricevuto
+    const newBinId = data.metadata?.id || jbBinId;
+    if (newBinId) {
+      jbBinId = newBinId;
       localStorage.setItem('viaggiapp_jb_bin', jbBinId);
     }
+
     lastSyncTime = new Date().toISOString();
     localStorage.setItem('viaggiapp_last_sync', lastSyncTime);
     const t = new Date().toLocaleTimeString('it-IT', {hour:'2-digit',minute:'2-digit'});
-    setSyncStatus('ok', `✓ Salvato alle ${t}`);
+    setSyncStatus('ok', '✓ Salvato alle ' + t);
     renderCloudSection();
-    showToast('☁️ Dati salvati sul cloud!');
+    showToast('☁️ Salvato! BIN: ' + jbBinId);
   } catch (e) {
-    setSyncStatus('error', '✗ Errore: ' + e.message);
-    showToast('⚠️ Errore sync: ' + e.message);
+    console.error('syncToCloud error:', e);
+    setSyncStatus('error', '✗ ' + e.message);
+    showToast('⚠️ Sync fallito: ' + e.message);
   }
 }
 
 async function syncFromCloud() {
-  if (!jbKey || !jbBinId) { showToast('⚠️ BIN ID non configurato'); return; }
+  if (!jbKey) { showToast('⚠️ Chiave API non configurata'); return; }
+  if (!jbBinId) { showToast('⚠️ Nessun BIN ID — prima usa ⬆️ Salva'); return; }
   setSyncStatus('syncing', 'Caricamento in corso...');
   try {
     const res = await fetch(`${JB_API}/b/${jbBinId}/latest`, {
       headers: { 'X-Master-Key': jbKey }
     });
     const data = await res.json();
-    if (!res.ok) {
-      if (res.status === 404) {
-        setSyncStatus('error', '✗ BIN non trovato');
-        showToast('⚠️ BIN ID non trovato. Usa ⬆️ Salva per crearne uno nuovo.');
-        jbBinId = '';
-        localStorage.removeItem('viaggiapp_jb_bin');
-        renderCloudSection();
-        return;
-      }
-      throw new Error(data.message || 'HTTP ' + res.status);
+
+    if (res.status === 404) {
+      setSyncStatus('error', '✗ BIN non trovato');
+      jbBinId = '';
+      localStorage.removeItem('viaggiapp_jb_bin');
+      renderCloudSection();
+      showToast('⚠️ BIN non trovato. Usa ⬆️ Salva per crearne uno nuovo.');
+      return;
     }
+    if (!res.ok) throw new Error((data.message || '') + ' (HTTP ' + res.status + ')');
+
     const remote = data.record;
     if (!remote || !Array.isArray(remote.trips)) throw new Error('Formato dati non valido');
-    // Merge: unisci remote con locale, remote vince sulle collisioni per ID
+
     const merged = [...remote.trips];
     trips.forEach(lt => { if (!merged.find(rt => rt.id === lt.id)) merged.push(lt); });
     trips = merged;
@@ -728,14 +745,15 @@ async function syncFromCloud() {
     lastSyncTime = new Date().toISOString();
     localStorage.setItem('viaggiapp_last_sync', lastSyncTime);
     const t = new Date().toLocaleTimeString('it-IT', {hour:'2-digit',minute:'2-digit'});
-    setSyncStatus('ok', `✓ Caricato alle ${t}`);
+    setSyncStatus('ok', '✓ Caricato alle ' + t);
     renderCloudSection();
     renderSidebar();
     if (trips.length) selectTrip(trips[0].id);
-    showToast(`☁️ ${remote.trips.length} viaggi caricati dal cloud!`);
+    showToast('☁️ ' + remote.trips.length + ' viaggi caricati!');
   } catch (e) {
-    setSyncStatus('error', '✗ Errore: ' + e.message);
-    showToast('⚠️ Errore caricamento: ' + e.message);
+    console.error('syncFromCloud error:', e);
+    setSyncStatus('error', '✗ ' + e.message);
+    showToast('⚠️ Caricamento fallito: ' + e.message);
   }
 }
 
