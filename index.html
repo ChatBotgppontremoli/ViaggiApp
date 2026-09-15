@@ -330,10 +330,11 @@ header h1 { font-family: 'Playfair Display', serif; font-size: 1.55rem; letter-s
   </main>
 </div>
 
-<!-- MODAL NUOVO VIAGGIO -->
+<!-- MODAL NUOVO / MODIFICA VIAGGIO -->
 <div class="modal-overlay" id="newTripModal">
   <div class="modal">
-    <h2>✈️ Nuovo viaggio</h2>
+    <h2 id="modalTripTitle">✈️ Nuovo viaggio</h2>
+    <input type="hidden" id="editingTripId" value="">
     <div class="form-row single">
       <div class="form-group">
         <label>Nome viaggio</label>
@@ -415,7 +416,7 @@ header h1 { font-family: 'Playfair Display', serif; font-size: 1.55rem; letter-s
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('newTripModal')">Annulla</button>
-      <button class="btn-primary" onclick="createTrip()">Crea viaggio 🚀</button>
+      <button class="btn-primary" id="modalSaveBtn" onclick="saveTrip()">Crea viaggio 🚀</button>
     </div>
   </div>
 </div>
@@ -665,7 +666,23 @@ async function syncToCloud() {
       });
     }
     data = await res.json();
-    if (!res.ok) throw new Error(data.message || res.status);
+    if (!res.ok) {
+      if (res.status === 404) {
+        // BIN non trovato — lo creo ex-novo
+        jbBinId = '';
+        localStorage.removeItem('viaggiapp_jb_bin');
+        setSyncStatus('syncing', 'BIN non trovato, ne creo uno nuovo...');
+        res = await fetch(`${JB_API}/b`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Master-Key': jbKey, 'X-Bin-Name': 'ViaggiApp', 'X-Private': 'true' },
+          body: JSON.stringify(payload.record)
+        });
+        data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'HTTP ' + res.status);
+      } else {
+        throw new Error(data.message || 'HTTP ' + res.status);
+      }
+    }
     if (!jbBinId) {
       jbBinId = data.metadata?.id || '';
       localStorage.setItem('viaggiapp_jb_bin', jbBinId);
@@ -690,7 +707,17 @@ async function syncFromCloud() {
       headers: { 'X-Master-Key': jbKey }
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || res.status);
+    if (!res.ok) {
+      if (res.status === 404) {
+        setSyncStatus('error', '✗ BIN non trovato');
+        showToast('⚠️ BIN ID non trovato. Usa ⬆️ Salva per crearne uno nuovo.');
+        jbBinId = '';
+        localStorage.removeItem('viaggiapp_jb_bin');
+        renderCloudSection();
+        return;
+      }
+      throw new Error(data.message || 'HTTP ' + res.status);
+    }
     const remote = data.record;
     if (!remote || !Array.isArray(remote.trips)) throw new Error('Formato dati non valido');
     // Merge: unisci remote con locale, remote vince sulle collisioni per ID
@@ -1041,7 +1068,8 @@ function renderSidebar() {
       <div class="trip-meta">📍 ${t.destination}</div>
       <div class="trip-meta">📅 ${t.startDate||'?'} → ${t.endDate||'?'}</div>
       ${p.total ? `<div class="trip-prog">${p.pct}% completato (${p.done}/${p.total})</div>` : ''}
-      <button class="trip-del" onclick="event.stopPropagation();delTrip('${t.id}')">✕</button>
+      <button class="trip-del" onclick="event.stopPropagation();openEditTripModal('${t.id}')" title="Modifica" style="right:30px">✏️</button>
+      <button class="trip-del" onclick="event.stopPropagation();delTrip('${t.id}')" title="Elimina">✕</button>
     </div>`;
   }).join('');
 }
@@ -1124,8 +1152,10 @@ function renderMain(trip) {
       </div>
       <div class="trip-actions">
         <button class="btn-sm btn-sm-terra" onclick="getAiAdvice('${trip.id}')">✨ Consigli AI</button>
+        <button class="btn-sm btn-sm-outline" onclick="openEditTripModal('${trip.id}')">✏️ Modifica</button>
         <button class="btn-sm btn-sm-outline" onclick="exportTxt()">💾 Esporta</button>
         <button class="btn-sm btn-sm-outline" onclick="openShareModal('${trip.id}')">📲 Condividi</button>
+        <button class="btn-sm" style="background:rgba(192,57,43,0.2);color:#e07060;border:none" onclick="delTrip('${trip.id}')">🗑️ Elimina</button>
       </div>
     </div>
 
@@ -1502,12 +1532,58 @@ let passengerCount = 0;
 function openNewTripModal() {
   passengerCount = 0;
   document.getElementById('passengerList').innerHTML = '';
+  document.getElementById('editingTripId').value = '';
+  document.getElementById('modalTripTitle').textContent = '✈️ Nuovo viaggio';
+  document.getElementById('modalSaveBtn').textContent = 'Crea viaggio 🚀';
   ['tripName','tripDest','tripNotes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('tripClimate').value = 'tropicale';
+  document.getElementById('tripType').value = 'relax';
+  document.getElementById('tripAccomm').value = 'hotel';
+  document.getElementById('tripBagLimit').value = '20';
   const today = new Date();
   const d2 = new Date(today.getTime() + 14*86400000);
   document.getElementById('tripStart').value = today.toISOString().split('T')[0];
   document.getElementById('tripEnd').value = d2.toISOString().split('T')[0];
   addPassenger(); addPassenger();
+  openModal('newTripModal');
+}
+
+function openEditTripModal(tripId) {
+  const trip = trips.find(t => t.id === tripId);
+  if (!trip) return;
+  passengerCount = 0;
+  document.getElementById('editingTripId').value = tripId;
+  document.getElementById('modalTripTitle').textContent = '✏️ Modifica viaggio';
+  document.getElementById('modalSaveBtn').textContent = 'Salva modifiche ✓';
+
+  document.getElementById('tripName').value = trip.name || '';
+  document.getElementById('tripDest').value = trip.destination || '';
+  document.getElementById('tripNotes').value = trip.notes || '';
+  document.getElementById('tripStart').value = trip.startDate || '';
+  document.getElementById('tripEnd').value = trip.endDate || '';
+  document.getElementById('tripClimate').value = trip.climate || 'tropicale';
+  document.getElementById('tripType').value = trip.type || 'relax';
+  document.getElementById('tripAccomm').value = trip.accomm || 'hotel';
+  document.getElementById('tripBagLimit').value = trip.bagLimit || '20';
+
+  // Popola passeggeri esistenti
+  const paxList = document.getElementById('passengerList');
+  paxList.innerHTML = '';
+  (trip.passengers || []).forEach(pax => {
+    passengerCount++;
+    const div = document.createElement('div');
+    div.className = 'passenger-row';
+    div.innerHTML = `<select>
+      <option value="uomo" ${pax.type==='uomo'?'selected':''}>👨 Uomo adulto</option>
+      <option value="donna" ${pax.type==='donna'?'selected':''}>👩 Donna adulta</option>
+      <option value="bambino_m" ${pax.type==='bambino_m'?'selected':''}>👦 Bambino (M)</option>
+      <option value="bambina_f" ${pax.type==='bambina_f'?'selected':''}>👧 Bambina (F)</option>
+    </select>
+    <input type="text" placeholder="Nome" value="${pax.name||''}">
+    <button class="btn-rem-pass" onclick="this.parentElement.remove()">✕</button>`;
+    paxList.appendChild(div);
+  });
+
   openModal('newTripModal');
 }
 
@@ -1519,36 +1595,110 @@ function addPassenger() {
   document.getElementById('passengerList').appendChild(div);
 }
 
-function createTrip() {
+async function saveTrip() {
   const name = document.getElementById('tripName').value.trim();
   const dest = document.getElementById('tripDest').value.trim();
   if (!name || !dest) { showToast('⚠️ Inserisci nome e destinazione!'); return; }
+
   const paxRows = document.getElementById('passengerList').querySelectorAll('.passenger-row');
   const passengers = Array.from(paxRows).map(row => {
     const sel = row.querySelector('select'), inp = row.querySelector('input');
-    return { type: sel.value, name: inp.value.trim() || sel.options[sel.selectedIndex].text.split(' ').pop() };
+    return { type: sel.value, name: inp.value.trim() || sel.options[sel.selectedIndex].text.split(' ').slice(1).join(' ') };
   });
-  const trip = {
-    id: Date.now().toString(36), name, destination: dest,
-    climate: document.getElementById('tripClimate').value,
-    startDate: document.getElementById('tripStart').value,
-    endDate: document.getElementById('tripEnd').value,
-    type: document.getElementById('tripType').value,
-    accomm: document.getElementById('tripAccomm').value,
-    bagLimit: document.getElementById('tripBagLimit').value,
-    passengers, notes: document.getElementById('tripNotes').value,
-    checklist: null, created: new Date().toISOString()
-  };
-  trips.push(trip);
-  saveTrips();
-  closeModal('newTripModal');
-  renderSidebar();
-  selectTrip(trip.id);
-  showToast('🎉 Viaggio creato!');
+
+  const editingId = document.getElementById('editingTripId').value;
+
+  if (editingId) {
+    // MODALITÀ MODIFICA
+    const trip = trips.find(t => t.id === editingId);
+    if (!trip) return;
+
+    const oldClimate = trip.climate;
+    const oldType = trip.type;
+    const oldPax = JSON.stringify(trip.passengers);
+    const oldNights = getNights(trip.startDate, trip.endDate);
+
+    const newClimate = document.getElementById('tripClimate').value;
+    const newType = document.getElementById('tripType').value;
+    const newPax = JSON.stringify(passengers);
+    const newNights = getNights(document.getElementById('tripStart').value, document.getElementById('tripEnd').value);
+
+    // Aggiorna campi base
+    trip.name = name;
+    trip.destination = dest;
+    trip.climate = newClimate;
+    trip.startDate = document.getElementById('tripStart').value;
+    trip.endDate = document.getElementById('tripEnd').value;
+    trip.type = newType;
+    trip.accomm = document.getElementById('tripAccomm').value;
+    trip.bagLimit = document.getElementById('tripBagLimit').value;
+    trip.notes = document.getElementById('tripNotes').value;
+    trip.passengers = passengers;
+
+    // Controlla se parametri importanti sono cambiati
+    const importantChanged = oldClimate !== newClimate || oldType !== newType || oldPax !== newPax || Math.abs(oldNights - newNights) > 1;
+
+    closeModal('newTripModal');
+    saveTrips();
+    renderSidebar();
+
+    if (importantChanged && trip.checklist) {
+      try {
+        await confirm2('Clima, tipo viaggio o partecipanti sono cambiati.\n\nVuoi rigenerare la lista automatica?\n(Le voci personalizzate andranno perse, quelle spuntate no)');
+        // Salva spunte e voci custom prima di rigenerare
+        const checkedIds = new Set();
+        const customItems = [];
+        Object.entries(trip.checklist).forEach(([k, s]) => {
+          s.items.forEach(it => {
+            if (it.checked) checkedIds.add(it.name);
+            if (it.tag === 'personalizzato') customItems.push({...it, _sec: k});
+          });
+        });
+        trip.checklist = generateChecklist(trip);
+        // Riapplica spunte per nome
+        Object.values(trip.checklist).forEach(s => {
+          s.items.forEach(it => { if (checkedIds.has(it.name)) it.checked = true; });
+        });
+        // Reinserisci voci custom
+        customItems.forEach(ci => {
+          const sec = trip.checklist[ci._sec] || Object.values(trip.checklist)[0];
+          sec.items.push({...ci, id: 'c_' + Math.random().toString(36).slice(2,8)});
+        });
+        showToast('🔄 Lista rigenerata!');
+      } catch {
+        showToast('✅ Viaggio aggiornato (lista invariata)');
+      }
+    } else {
+      showToast('✅ Viaggio aggiornato!');
+    }
+
+    saveTrips();
+    selectTrip(editingId);
+
+  } else {
+    // MODALITÀ CREAZIONE
+    const trip = {
+      id: Date.now().toString(36), name, destination: dest,
+      climate: document.getElementById('tripClimate').value,
+      startDate: document.getElementById('tripStart').value,
+      endDate: document.getElementById('tripEnd').value,
+      type: document.getElementById('tripType').value,
+      accomm: document.getElementById('tripAccomm').value,
+      bagLimit: document.getElementById('tripBagLimit').value,
+      passengers, notes: document.getElementById('tripNotes').value,
+      checklist: null, created: new Date().toISOString()
+    };
+    trips.push(trip);
+    saveTrips();
+    closeModal('newTripModal');
+    renderSidebar();
+    selectTrip(trip.id);
+    showToast('🎉 Viaggio creato!');
+  }
 }
 
 async function delTrip(id) {
-  try { await confirm2('Eliminare questo viaggio? I dati andranno persi.'); }
+  try { await confirm2('⚠️ Eliminare questo viaggio?\nI dati andranno persi definitivamente.'); }
   catch { return; }
   trips = trips.filter(t => t.id !== id);
   if (currentTripId === id) {
