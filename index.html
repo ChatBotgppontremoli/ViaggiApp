@@ -584,44 +584,77 @@ function renderCloudSection() {
 
 async function saveCloudConfig() {
   const keyRaw = document.getElementById('jbKeyInput').value;
-  const key = keyRaw.trim().replace(/[\u200B-\u200D\uFEFF]/g, ''); // rimuove zero-width chars
+  const key = keyRaw.trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
   const bin = (document.getElementById('jbBinInput').value || '').trim();
   const resultEl = document.getElementById('jbTestResult');
 
   if (!key) { if(resultEl) resultEl.textContent = '⚠️ Incolla la Master Key'; return; }
-  if (!key.startsWith('$2a$') && !key.startsWith('$2b$')) {
-    if(resultEl) resultEl.innerHTML = '⚠️ La chiave sembra errata. Deve iniziare con <code>$2a$10$</code>. Copiala dalla pagina <strong>API Keys</strong> di jsonbin.io';
-    return;
-  }
-  if(resultEl) resultEl.innerHTML = '<span style="color:#7ec4ea">🔄 Test connessione...</span>';
+  if(resultEl) resultEl.innerHTML = '<span style="color:#7ec4ea">🔄 Test connessione in corso...</span>';
 
-  // Test rapido: leggi lista bin per verificare la chiave
   try {
+    // STEP 1: test autenticazione con lista bins
     const testRes = await fetch('https://api.jsonbin.io/v3/b?sortBy=createdAt&sortOrder=desc&limit=1', {
       headers: { 'X-Master-Key': key }
     });
-    if (testRes.status === 401) {
-      if(resultEl) resultEl.innerHTML = '❌ Chiave non valida. Ricopiala dalla pagina <strong>API Keys</strong> di jsonbin.io (tasto copia, non digitare a mano).';
-      return;
-    }
-    if (!testRes.ok && testRes.status !== 200) {
-      if(resultEl) resultEl.textContent = `⚠️ Errore HTTP ${testRes.status}`;
-      return;
-    }
-  } catch(e) {
-    if(resultEl) resultEl.textContent = '⚠️ Errore di rete: ' + e.message;
-    return;
-  }
+    const testText = await testRes.text();
+    let testData;
+    try { testData = JSON.parse(testText); } catch { testData = {}; }
 
-  if(resultEl) resultEl.innerHTML = '<span style="color:#5dbd7e">✓ Chiave valida! Salvataggio...</span>';
-  jbKey = key;
-  jbBinId = bin;
-  localStorage.setItem('viaggiapp_jb_key', key);
-  localStorage.setItem('viaggiapp_jb_bin', bin);
-  setTimeout(async () => {
-    renderCloudSection();
-    await syncToCloud();
-  }, 500);
+    if(resultEl) resultEl.innerHTML += '<br>📡 Status lista bins: ' + testRes.status;
+
+    if (testRes.status === 401) {
+      if(resultEl) resultEl.innerHTML += '<br>❌ Chiave non valida (401). Ricopiala dalla pagina <strong>API Keys</strong> di jsonbin.io.';
+      return;
+    }
+    if (testRes.status === 403) {
+      if(resultEl) resultEl.innerHTML += '<br>❌ Accesso negato (403). Verifica i permessi della chiave su jsonbin.io.';
+      return;
+    }
+    if (!testRes.ok) {
+      if(resultEl) resultEl.innerHTML += '<br>❌ Errore HTTP ' + testRes.status + ': ' + (testData.message || testText.slice(0,100));
+      return;
+    }
+
+    if(resultEl) resultEl.innerHTML += '<br>✅ Chiave valida!';
+
+    // STEP 2: se c'è un BIN ID, verificalo
+    if (bin) {
+      if(resultEl) resultEl.innerHTML += '<br>🔄 Verifico BIN ID: ' + bin + '...';
+      const binRes = await fetch('https://api.jsonbin.io/v3/b/' + bin + '/latest', {
+        headers: { 'X-Master-Key': key }
+      });
+      if(resultEl) resultEl.innerHTML += '<br>📡 Status BIN: ' + binRes.status;
+      if (binRes.status === 404) {
+        if(resultEl) resultEl.innerHTML += '<br>⚠️ BIN ID non trovato (404). Verrà creato un nuovo BIN.';
+        // Salva la chiave ma ignora il bin ID errato
+        jbKey = key; jbBinId = '';
+        localStorage.setItem('viaggiapp_jb_key', key);
+        localStorage.removeItem('viaggiapp_jb_bin');
+        if(resultEl) resultEl.innerHTML += '<br>✅ Configurato. Creo nuovo BIN...';
+        renderCloudSection();
+        await syncToCloud();
+        return;
+      }
+      if (!binRes.ok) {
+        const bd = await binRes.json().catch(()=>({}));
+        if(resultEl) resultEl.innerHTML += '<br>❌ Errore BIN: ' + (bd.message || binRes.status);
+        return;
+      }
+      if(resultEl) resultEl.innerHTML += '<br>✅ BIN trovato!';
+    }
+
+    // STEP 3: tutto ok, salva e sincronizza
+    jbKey = key; jbBinId = bin;
+    localStorage.setItem('viaggiapp_jb_key', key);
+    if (bin) localStorage.setItem('viaggiapp_jb_bin', bin);
+    else localStorage.removeItem('viaggiapp_jb_bin');
+
+    if(resultEl) resultEl.innerHTML += '<br>✅ <strong>Connesso! Salvataggio dati...</strong>';
+    setTimeout(async () => { renderCloudSection(); await syncToCloud(); }, 600);
+
+  } catch(e) {
+    if(resultEl) resultEl.innerHTML += '<br>❌ Errore di rete: ' + e.message + '<br><small>Controlla la connessione internet.</small>';
+  }
 }
 
 function resetBinId() {
