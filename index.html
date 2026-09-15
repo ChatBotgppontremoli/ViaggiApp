@@ -1100,6 +1100,7 @@ function renderSidebar() {
       <div class="trip-meta">📍 ${t.destination}</div>
       <div class="trip-meta">📅 ${t.startDate||'?'} → ${t.endDate||'?'}</div>
       ${p.total ? `<div class="trip-prog">${p.pct}% completato (${p.done}/${p.total})</div>` : ''}
+      <button class="trip-del" onclick="event.stopPropagation();duplicateTrip('${t.id}')" title="Duplica" style="right:54px">⧉</button>
       <button class="trip-del" onclick="event.stopPropagation();openEditTripModal('${t.id}')" title="Modifica" style="right:30px">✏️</button>
       <button class="trip-del" onclick="event.stopPropagation();delTrip('${t.id}')" title="Elimina">✕</button>
     </div>`;
@@ -1185,6 +1186,7 @@ function renderMain(trip) {
       <div class="trip-actions">
         <button class="btn-sm btn-sm-terra" onclick="getAiAdvice('${trip.id}')">✨ Consigli AI</button>
         <button class="btn-sm btn-sm-outline" onclick="openEditTripModal('${trip.id}')">✏️ Modifica</button>
+        <button class="btn-sm btn-sm-outline" onclick="duplicateTrip('${trip.id}')">⧉ Duplica</button>
         <button class="btn-sm btn-sm-outline" onclick="exportTxt()">💾 Esporta</button>
         <button class="btn-sm btn-sm-outline" onclick="openShareModal('${trip.id}')">📲 Condividi</button>
         <button class="btn-sm" style="background:rgba(192,57,43,0.2);color:#e07060;border:none" onclick="delTrip('${trip.id}')">🗑️ Elimina</button>
@@ -1727,6 +1729,21 @@ async function saveTrip() {
     selectTrip(trip.id);
     showToast('🎉 Viaggio creato!');
   }
+}
+
+function duplicateTrip(id) {
+  const original = trips.find(t => t.id === id);
+  if (!original) return;
+  const copy = JSON.parse(JSON.stringify(original)); // deep clone
+  copy.id = Date.now().toString(36);
+  copy.name = original.name + ' (copia)';
+  copy.created = new Date().toISOString();
+  trips.push(copy);
+  saveTrips();
+  renderSidebar();
+  showToast('⧉ Viaggio duplicato!');
+  // Apre subito il modal di modifica per aggiornare nome/date
+  openEditTripModal(copy.id);
 }
 
 async function delTrip(id) {
