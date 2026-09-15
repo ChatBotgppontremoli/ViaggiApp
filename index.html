@@ -1471,7 +1471,7 @@ function renderApiKeyPrompt(el, tripId) {
       </button>
     </div>
     <div style="font-size:0.72rem;color:var(--textm);margin-top:6px">
-      La chiave viene salvata solo nel tuo browser. Modello: Gemini 2.0 Flash (gratuito).
+      La chiave viene salvata solo nel tuo browser. Modello: OpenRouter Free (seleziona automaticamente il migliore disponibile).
     </div>`;
 }
 
@@ -1531,7 +1531,7 @@ async function getAiAdvice(tripId) {
         'X-Title': 'ViaggiApp'
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
+        model: 'openrouter/free',
         max_tokens: 600,
         messages: [{ role: 'user', content: prompt }]
       })
